@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+
+#
+# Copyright 2015 Paul Donohue <cgroupsd@PaulSD.com>
+#
+# This program is free software: you can redistribute it and/or modify it under the terms of the GNU
+# General Public License as published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+# even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.  If
+# not, see <http://www.gnu.org/licenses/>.
+#
+
+#
+# cgroups Management Daemon
+#
+# This program is basically a combination of the standard cgconfig and cgrulesengd programs, but
+# implemented in Python to allow for easy extensibility.  For example, this may be used to
+# dynamically define and assign cgroups to Rails web applications running under an Apache /
+# Passenger server, which is not possible with the existing cgconfig and cgrulesengd programs.
+#
+# Prerequisites:
+# argparse : `sudo apt-get install python-argparse` or `sudo yum install python-argparse`
+# Prerequisites from lib/libnl.py:
+# libnl : `sudo apt-get install libnl-3-200` or `sudo yum install libnl3`
+# libnl headers : `sudo apt-get install libnl-3-dev` or `sudo yum install libnl3-devel`
+# cffi : `sudo apt-get install python-cffi` or `sudo yum install python-pip ; sudo pip install cffi`
+# (cffi v0.8.2 or later is required for #define and packed=True support in cdef())
+# Prerequisites from lib/cgroupsd_listener.py:
+# psutil (v2 or later) : `sudo apt-get install python-psutil` or
+#                        `sudo yum install python-pip ; sudo pip install psutil`
+# Prerequisites from lib/base_handler.py:
+# cgroupspy : `sudo apt-get install python-pip ; sudo pip install cgroupspy` or
+#             `sudo yum install python-pip ; sudo pip install cgroupspy`
+#
+# See the comments in etc/cgroupsd_handlers.py for configuration/customization.
+#
+
+
+
+import logging  # Log levels: debug info warning error/exception critical
+if __name__ == '__main__':
+  import argparse
+  parser = argparse.ArgumentParser(description='cgroups Management Daemon')
+  parser.add_argument('--log-level', type=str, default='info', help='Log level (debug info warning error)')
+  args = parser.parse_args()
+  format = '%(asctime)s %(levelname)-8s %(name)-16s %(message)s'
+  datefmt = '%Y-%m-%d %H:%M:%S'
+  logging.basicConfig(level=getattr(logging, args.log_level.upper()), format=format, datefmt=datefmt)
+__logger = logging.getLogger(__name__)
+
+# Based on http://stackoverflow.com/questions/279237/import-a-module-from-a-relative-path
+import os, sys, inspect
+script_path = os.path.dirname(os.path.realpath(inspect.getfile(inspect.currentframe())))
+add_path = os.path.join(script_path, 'lib')
+if add_path not in sys.path: sys.path.insert(0, add_path)
+add_path = os.path.join(script_path, 'etc')
+if add_path not in sys.path: sys.path.insert(0, add_path)
+
+import cgroupsd_handlers
+
+import cgroupsd_listener
+
+cgroupsd_listener.start()
+
+# Run until signal (CTRL-C)
+import signal
+try: signal.pause()
+# CTRL-C causes ^C to be printed without a trailing newline
+except KeyboardInterrupt: sys.stderr.write('\n')
+
+cgroupsd_listener.stop()

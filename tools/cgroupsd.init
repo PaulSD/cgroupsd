@@ -1,0 +1,103 @@
+#!/bin/bash
+# chkconfig: 35 15 15
+# description: cgroupsd
+# This script requires rotatelogs, which is included in the httpd RPM.
+# To install:
+#   ln -s /opt/cgroupsd/tools/cgroupsd.init /etc/init.d/cgroupsd
+#   chkconfig --add cgroupsd
+
+Daemon=/opt/cgroupsd/cgroupsd
+Log_File=/var/log/cgroupsd.log
+
+# Time period (in seconds) to wait for cgroupsd to be killed
+KillTimeout=60
+
+ScriptName="$(basename "$0")"
+Usage()
+{
+  echo "Usage: $ScriptName {start|stop|restart|status}" >&2
+  exit 1
+}
+
+umask 0007
+
+Log()
+{
+  local Message="$1"
+  echo `date "+%Y-%m-%d %H:%M:%S"` "$Message" | \
+    /usr/sbin/rotatelogs "$Log_File.%Y-%m-%d" 86400
+  return 0
+}
+
+PIDStatus()
+{
+  PID="$(ps -U root -o pid,command -ww | grep -v grep | grep "python .*cgroupsd" | head -1 | awk '{print $1}')"
+  [ -z "$PID" ] && return 1
+  return 0
+}
+
+case "$1" in
+  start)
+    echo -n "Removing stale log files: "
+    find "$Log_File"* -maxdepth 1 -type f -mtime +5 -delete 2> /dev/null
+    echo "done"
+    echo -n "Starting cgroupsd: "
+    Log "Starting..."
+    if PIDStatus ; then
+      echo "Already running" >&2
+      Log "Already running"
+      exit 2
+    fi
+    $Daemon 2>&1 | /usr/sbin/rotatelogs "$Log_File.%Y-%m-%d" 86400 &
+    echo "done"
+    Log "Finished starting"
+    exit 0
+    ;;
+  stop)
+    echo -n -e "Stopping cgroupsd: \r" >&2
+    Log "Stopping..."
+    if ! PIDStatus ; then
+      echo "Stopping cgroupsd: Not running" >&2
+      Log "Not running"
+      exit 3
+    fi
+    kill "$PID"
+    for (( Seconds=$KillTimeout ; Seconds > 0 ; Seconds-- )) ; do
+      PIDStatus || break
+      echo -n -e "Stopping cgroupsd: timeout in ${Seconds}s \r" >&2
+      sleep 1
+    done
+    if [ $Seconds -eq 0 ] ; then
+      echo "Stopping cgroupsd: Timed out waiting for cgroupsd to stop" >&2
+      Log "Timed out after $KillTimeout seconds waiting for cgroupsd to stop"
+      echo -n "Killing cgroupsd: " >&2
+      Log "Killing..."
+      kill -9 "$PID"
+      echo "done" >&2
+      Log "Killed"
+      exit 4
+    fi
+    echo "Stopping cgroupsd: done            " >&2
+    Log "Stopped in $(($KillTimeout - $Seconds)) seconds"
+    exit 0
+    ;;
+  restart)
+    Script="$(readlink -e "$(which "$0")")"
+    cd "$(dirname "$Script")"
+    eval "./$(basename "$Script") stop"
+    eval "./$(basename "$Script") start"
+    exit $?
+    ;;
+  status)
+    echo -n "cgroupsd: "
+    if ! PIDStatus ; then
+      echo "Not running" >&2
+      exit 3
+    fi
+    echo "Running"
+    exit 0
+    ;;
+  *)
+    Usage
+    ;;
+esac
