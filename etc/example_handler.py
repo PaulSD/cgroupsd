@@ -118,7 +118,7 @@ class ExampleHandler(BaseHandler):
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new
   # processes or threads.
   # The super (BaseHandler) implementation sets the permissions on each parent cgroup to the value
-  # of the cgroups_perms parameter provided to __init__(), and sets memory.use_heirarchy=1 and
+  # of the cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
   # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
   def init_cgroup(self, cgroup_node):
     super(ExampleHandler, self).init_cgroup(cgroup_node)
