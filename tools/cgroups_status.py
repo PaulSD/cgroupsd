@@ -47,13 +47,22 @@ def print_cgroup(cgroup_node):
   # Don't print subsystem roots
   if cgroup_node.node_type == cgroup_node.NODE_CONTROLLER_ROOT: return
   if cgroup_node.controller_type == 'memory':
-    # If using nested groups, 'total_rss' from cgroup_node.controller.stats includes nested allocations
-    print('cgroup {0}  Memory Limit: {1}MB  Current Usage: {2}MB  OOM Count: {3}'.format(
-     cgroup_node.path,
-     cgroup_node.controller.limit_in_bytes/1048576,
-     cgroup_node.controller.usage_in_bytes/1048576,
-     cgroup_node.controller.failcnt,
-     ))
+    if cgroup_node.controller.use_hierarchy and len(cgroup_node.children) != 0:
+      stats = cgroup_node.controller.stat
+      print('cgroup {0}  Memory Limit: {1}MB  Current Usage: {2}MB  Without sub-groups: {3}MB  OOM Count: {4}'.format(
+       cgroup_node.path,
+       cgroup_node.controller.limit_in_bytes/1048576,
+       (stats['total_rss']+stats['total_cache']+stats['total_swap'])/1048576,
+       (stats['rss']+stats['cache']+stats['swap'])/1048576,
+       cgroup_node.controller.failcnt,
+       ))
+    else:
+      print('cgroup {0}  Memory Limit: {1}MB  Current Usage: {2}MB  OOM Count: {3}'.format(
+       cgroup_node.path,
+       cgroup_node.controller.limit_in_bytes/1048576,
+       cgroup_node.controller.usage_in_bytes/1048576,
+       cgroup_node.controller.failcnt,
+       ))
     pids = cgroup_node.controller.procs
     if not pids: return
     print('    PID  Mem (MB)  Username  Process')
