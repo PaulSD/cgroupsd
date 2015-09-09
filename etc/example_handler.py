@@ -129,8 +129,10 @@ class ExampleHandler(BaseHandler):
     # Documentation for cgroups parameters:
     # https://www.kernel.org/doc/Documentation/cgroups/
     if cgroup_node.controller_type == 'cpu':
-      self.__logger.info('Setting cpu.shares={0} on {1}'.format(cpu_shares, cgroup_node.full_path))
-      cgroup_node.controller.shares = cpu_shares
+      if new_cgroup or cgroup_node.controller.shares != cpu_shares:
+        self.__logger.info('Setting cpu.shares={0} on {1}'.format(cpu_shares, cgroup_node.full_path))
+        cgroup_node.controller.shares = cpu_shares
     elif cgroup_node.controller_type == 'memory':
-      self.__logger.info('Setting memory.limit_in_bytes={0}M on {1}'.format(memory_limit, cgroup_node.full_path))
-      cgroup_node.controller.limit_in_bytes = memory_limit*1048576
+      if new_cgroup or cgroup_node.controller.limit_in_bytes != memory_limit*1048576:
+        self.__logger.info('Setting memory.limit_in_bytes={0}M on {1}'.format(memory_limit, cgroup_node.full_path))
+        cgroup_node.controller.limit_in_bytes = memory_limit*1048576

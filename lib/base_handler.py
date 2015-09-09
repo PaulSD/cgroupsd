@@ -49,6 +49,7 @@ from cgroupspy.utils import split_path_components
 
 import logging
 import os
+import stat
 import psutil
 import errno
 import signal
@@ -60,6 +61,9 @@ import platform
 cgroups_root_path = '/sys/fs/cgroup/'
 if 'Red Hat' in platform.linux_distribution()[0] and platform.linux_distribution()[1].startswith('6'):
   cgroups_root_path = '/cgroup/'
+
+def _cur_perms(path):
+  return stat.S_IMODE(os.stat(path).st_mode)
 
 class BaseHandler(object):
 
@@ -133,8 +137,9 @@ class BaseHandler(object):
   # this will not be called.  The default implementation sets the permissions on each subsystem to
   # 0o755.
   def config_subsystem(self, cgroup_node):
-    self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
-    os.chmod(cgroup_node.full_path, 0o755)
+    if _cur_perms(cgroup_node.full_path) != 0o755:
+      self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
+      os.chmod(cgroup_node.full_path, 0o755)
 
   # This may be overridden to configure (or reconfigure) each parent cgroup (each parent path
   # component) of each of the cgroups specified in the base_cgroups parameter to __init__().  Care
@@ -146,8 +151,9 @@ class BaseHandler(object):
   # called once to configure 'a/b/c'.  The default implementation sets the permissions on each
   # parent cgroup to 0o755.
   def config_base_cgroup_parent(self, cgroup_node, depth):
-    self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
-    os.chmod(cgroup_node.full_path, 0o755)
+    if _cur_perms(cgroup_node.full_path) != 0o755:
+      self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
+      os.chmod(cgroup_node.full_path, 0o755)
 
   # This may be overridden to configure (or reconfigure) each of the cgroups specified in the
   # base_cgroups parameter to __init__().  If the base_cgroups parameter was not provided to
@@ -156,17 +162,20 @@ class BaseHandler(object):
   # memory.use_hierarchy=1 and memory.move_charge_at_immigrate=3 if the cgroup is under the memory
   # subsystem.
   def config_base_cgroup(self, cgroup_node):
-    if self.cgroups_perms:
+    if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
     if cgroup_node.controller_type == 'memory':
-      self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
-      try: cgroup_node.controller.use_hierarchy = True
-      # This may be thrown if the cgroup already includes nested cgroups,
-      # but that shouldn't be a fatal error
-      except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
-      self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
-      cgroup_node.controller.move_charge_at_immigrate = [True, True]
+      if not cgroup_node.controller.use_hierarchy:
+        self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
+        try: cgroup_node.controller.use_hierarchy = True
+        # This may be thrown if the cgroup already includes nested cgroups,
+        # but that shouldn't be a fatal error
+        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+      move = cgroup_node.controller.move_charge_at_immigrate
+      if not move[0] or not move[1]:
+        self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
+        cgroup_node.controller.move_charge_at_immigrate = [True, True]
 
   # This calls get_process_cgroups(), then passes the return value to config_cgroups() and
   # assign_process_cgroups().
@@ -394,17 +403,20 @@ class BaseHandler(object):
   # cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
   # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
   def init_cgroup_parent(self, cgroup_node, depth, new_cgroup):
-    if self.cgroups_perms:
+    if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
     if cgroup_node.controller_type == 'memory':
-      self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
-      try: cgroup_node.controller.use_hierarchy = True
-      # This may be thrown if the cgroup already includes nested cgroups,
-      # but that shouldn't be a fatal error
-      except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
-      self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
-      cgroup_node.controller.move_charge_at_immigrate = [True, True]
+      if new_cgroup or not cgroup_node.controller.use_hierarchy:
+        self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
+        try: cgroup_node.controller.use_hierarchy = True
+        # This may be thrown if the cgroup already includes nested cgroups,
+        # but that shouldn't be a fatal error
+        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+      move = cgroup_node.controller.move_charge_at_immigrate
+      if new_cgroup or not move[0] or not move[1]:
+        self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
+        cgroup_node.controller.move_charge_at_immigrate = [True, True]
 
   # This may be overridden to reconfigure each existing parent cgroup (each parent path component of
   # a cgroup, not including base name path components) that is encountered by config_cgroups() after
@@ -434,17 +446,20 @@ class BaseHandler(object):
   # parameter provided to __init__(), and sets memory.use_hierarchy=1 and
   # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
   def init_cgroup(self, cgroup_node, new_cgroup):
-    if self.cgroups_perms:
+    if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
     if cgroup_node.controller_type == 'memory':
-      self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
-      try: cgroup_node.controller.use_hierarchy = True
-      # This may be thrown if the cgroup already includes nested cgroups,
-      # but that shouldn't be a fatal error
-      except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
-      self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
-      cgroup_node.controller.move_charge_at_immigrate = [True, True]
+      if new_cgroup or not cgroup_node.controller.use_hierarchy:
+        self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
+        try: cgroup_node.controller.use_hierarchy = True
+        # This may be thrown if the cgroup already includes nested cgroups,
+        # but that shouldn't be a fatal error
+        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+      move = cgroup_node.controller.move_charge_at_immigrate
+      if new_cgroup or not move[0] or not move[1]:
+        self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
+        cgroup_node.controller.move_charge_at_immigrate = [True, True]
 
   # This may be overridden to reconfigure each existing cgroup that is encountered by
   # config_cgroups() after the initial process iteration when cgroupsd_listener is started.
