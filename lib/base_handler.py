@@ -95,6 +95,8 @@ class BaseHandler(object):
      self.cgroups_tree.get_node_by_path(os.path.join('/', subsystem, base_cgroup))
      for base_cgroup in base_cgroups for subsystem in subsystems]
 
+    self.initialized_cgroups = {}
+
     # Configure (or reconfigure) the subsystems
     for subsystem in subsystems:
       self.config_subsystem(self.cgroups_tree.get_node_by_path(os.path.join('/', subsystem)))
@@ -107,9 +109,11 @@ class BaseHandler(object):
         for path_component in split_path_components(base_cgroup)[0:-1]:
           path = os.path.join(path, path_component)
           self.config_base_cgroup_parent(self.cgroups_tree.get_node_by_path(path), depth)
+          self.initialized_cgroups[path] = True
           depth += 1
         path = os.path.join('/', subsystem, base_cgroup)
         self.config_base_cgroup(self.cgroups_tree.get_node_by_path(path))
+        self.initialized_cgroups[path] = True
 
     # Register callbacks with cgroupsd_listener
     cgroupsd_listener.handlers['process'] += self.handle_process
@@ -180,7 +184,7 @@ class BaseHandler(object):
       return True
     self.__logger.debug('Assigning PID {0} (UID {1}: {2}) to cgroups {3}'.format(pid, proc_uid, proc_name, cgroups))
 
-    self.config_cgroups(cgroups)
+    self.config_cgroups(cgroups=cgroups, init_existing=args['event_args'].get('first_sync', False))
     self.assign_process_cgroups(cgroups=cgroups, **args)
     return True
 
@@ -272,7 +276,7 @@ class BaseHandler(object):
       return True
     self.__logger.debug('Assigning PID {0} TID {1} (UID {2}: {3}) to cgroups {4}'.format(pid, tid, tproc_uid, tproc_name, cgroups))
 
-    self.config_cgroups(cgroups)
+    self.config_cgroups(cgroups=cgroups, init_existing=args['event_args'].get('first_sync', False))
     self.assign_thread_cgroups(cgroups=cgroups, **args)
     return True
 
@@ -333,8 +337,12 @@ class BaseHandler(object):
   # get_thread_cgroups()) and calls init_cgroup_parent(), init_cgroup(), reconfig_cgroup_parent(),
   # or reconfig_cgroup() for each cgroup path component included in the cgroup name value within
   # each cgroup tuple.  Path components included in the base name value within each cgroup tuple are
-  # assumed to exist already.
-  def config_cgroups(self, cgroups):
+  # assumed to exist already.  If "init_existing" is True then init_cgroup_parent() or init_cgroup()
+  # will be called for existing cgroups that have not already been encountered.
+  def config_cgroups(self, cgroups, init_existing=False):
+    if not init_existing:
+      # This shouldn't be needed any more after we've reconfigured all of the existing cgroups
+      self.initialized_cgroups = {}
     for cgroup in cgroups:
       path = os.path.join('/', cgroup[0], cgroup[1])
       cgroup_node = self.cgroups_tree.get_node_by_path(path)
@@ -345,7 +353,11 @@ class BaseHandler(object):
         if not next_cgroup_node:
           self.__logger.info('Creating cgroup {0}'.format(path))
           cgroup_node = cgroup_node.create_cgroup(path_component)
-          self.init_cgroup_parent(cgroup_node, depth)
+          self.init_cgroup_parent(cgroup_node, depth, new_cgroup=True)
+        elif init_existing and self.initialized_cgroups.get(path, None) == None:
+          cgroup_node = next_cgroup_node
+          self.init_cgroup_parent(cgroup_node, depth, new_cgroup=False)
+          self.initialized_cgroups[path] = True
         else:
           cgroup_node = next_cgroup_node
           self.reconfig_cgroup_parent(cgroup_node, depth)
@@ -355,25 +367,33 @@ class BaseHandler(object):
       if not next_cgroup_node:
         self.__logger.info('Creating cgroup {0}'.format(path))
         cgroup_node = cgroup_node.create_cgroup(os.path.basename(path))
-        self.init_cgroup(cgroup_node)
+        self.init_cgroup(cgroup_node, new_cgroup=True)
+      elif init_existing and self.initialized_cgroups.get(path, None) == None:
+        cgroup_node = next_cgroup_node
+        self.init_cgroup(cgroup_node, new_cgroup=False)
+        self.initialized_cgroups[path] = True
       else:
         cgroup_node = next_cgroup_node
         self.reconfig_cgroup(cgroup_node)
 
   # This may be overridden to initialize each parent cgroup (each parent path component of a cgroup,
-  # not including base name path components) that is created by config_cgroups().
+  # not including base name path components) that is created by config_cgroups(), and to reconfigure
+  # each existing parent cgroup that is encountered by config_cgroups() during the initial process
+  # iteration when cgroupsd_listener is started.
   # Note that because this function is (indirectly) called when process events are triggered, any
   # new processes or threads spawned by this function may trigger additional calls to this
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new
   # processes or threads.
-  # The depth parameter is a 1-indexed integer indicating the depth of the path component.  For
+  # The "depth" parameter is a 1-indexed integer indicating the depth of the path component.  For
   # example, given a new cgroup name of 'a/b/c' where 'a' does not already exist, this would be
   # called twice: For 'a' with depth=1, and for 'a/b' with depth=2.  init_cgroup() would also be
-  # called once to configure 'a/b/c'.  The default implementation sets the permissions on each
-  # parent cgroup to the value of the cgroups_perms parameter provided to __init__(), and sets
-  # memory.use_hierarchy=1 and memory.move_charge_at_immigrate=3 if the cgroup is under the memory
-  # subsystem.
-  def init_cgroup_parent(self, cgroup_node, depth):
+  # called once to configure 'a/b/c'.  The "new_cgroup" parameter will be True if this is being
+  # called to initialize a new cgroup, or False if this is being called to reconfigure an existing
+  # cgroup during the initial process iteration when cgroupsd_listener is started.
+  # The default implementation sets the permissions on each parent cgroup to the value of the
+  # cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
+  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
+  def init_cgroup_parent(self, cgroup_node, depth, new_cgroup):
     if self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
@@ -387,7 +407,8 @@ class BaseHandler(object):
       cgroup_node.controller.move_charge_at_immigrate = [True, True]
 
   # This may be overridden to reconfigure each existing parent cgroup (each parent path component of
-  # a cgroup, not including base name path components) that is encountered by config_cgroups().
+  # a cgroup, not including base name path components) that is encountered by config_cgroups() after
+  # the initial process iteration when cgroupsd_listener is started.
   # Note that because this function is (indirectly) called when process events are triggered, any
   # new processes or threads spawned by this function may trigger additional calls to this
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new
@@ -399,15 +420,20 @@ class BaseHandler(object):
   def reconfig_cgroup_parent(self, cgroup_node, depth):
     pass
 
-  # This may be overridden to initialize each cgroup that is created by config_cgroups().
+  # This may be overridden to initialize each cgroup that is created by config_cgroups(), and to
+  # reconfigure each existing cgroup that is encountered by config_cgroups() during the initial
+  # process iteration when cgroupsd_listener is started.
   # Note that because this function is (indirectly) called when process events are triggered, any
   # new processes or threads spawned by this function may trigger additional calls to this
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new
   # processes or threads.
-  # The default implementation sets the permissions on each parent cgroup to the value of the
-  # cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
+  # The "new_cgroup" parameter will be True if this is being called to initialize a new cgroup, or
+  # False if this is being called to reconfigure an existing cgroup during the initial process
+  # iteration when cgroupsd_listener is started.
+  # The default implementation sets the permissions on each cgroup to the value of the cgroups_perms
+  # parameter provided to __init__(), and sets memory.use_hierarchy=1 and
   # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
-  def init_cgroup(self, cgroup_node):
+  def init_cgroup(self, cgroup_node, new_cgroup):
     if self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
@@ -421,7 +447,7 @@ class BaseHandler(object):
       cgroup_node.controller.move_charge_at_immigrate = [True, True]
 
   # This may be overridden to reconfigure each existing cgroup that is encountered by
-  # config_cgroups().
+  # config_cgroups() after the initial process iteration when cgroupsd_listener is started.
   # Note that because this function is (indirectly) called when process events are triggered, any
   # new processes or threads spawned by this function may trigger additional calls to this
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new

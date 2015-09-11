@@ -38,7 +38,7 @@
 # libnl.nl_socket_modify_cb(socket, libnl.NL_CB_VALID, libnl.NL_CB_CUSTOM, my_func, libnl_ffi.NULL)
 # libnl.nl_connect(socket, libnl.NETLINK_ROUTE)
 # libnl.nl_socket_add_membership(socket, libnl.RTNLGRP_LINK)
-# while true:
+# while True:
 #   libnl.nl_recvmsgs_default(socket)
 #
 
@@ -98,7 +98,7 @@
 
 # Some cffi notes:
 # * To access a struct member whose name is a Python keyword (such as proc_event->exec), use
-#   getattr(proc_event,'exec')
+#   getattr(proc_event, 'exec')
 
 
 

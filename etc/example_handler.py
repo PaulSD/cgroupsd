@@ -111,17 +111,20 @@ class ExampleHandler(BaseHandler):
             for subsystem in self.subsystems]
 
 
-  # This will be called to initialize any new (not already existing) cgroups that were assigned to
-  # a process by get_process_cgroups().
+  # This will be called to initialize any new (not already existing) cgroups, or to reconfigure any
+  # existing but not previously encountered (since cgroupsd_listener was started) cgroups that were
+  # assigned to a process by get_process_cgroups().
   # Note that because this function is (indirectly) called when process events are triggered, any
   # new processes or threads spawned by this function may trigger additional calls to this
   # function.  To avoid infinite loops, this function must be careful to avoid spawning new
   # processes or threads.
+  # The "new_cgroup" parameter will be True if this is being called to initialize a new cgroup, or
+  # False if this is being called to reconfigure an existing cgroup.
   # The super (BaseHandler) implementation sets the permissions on each parent cgroup to the value
   # of the cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
   # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
-  def init_cgroup(self, cgroup_node):
-    super(ExampleHandler, self).init_cgroup(cgroup_node)
+  def init_cgroup(self, cgroup_node, new_cgroup):
+    super(ExampleHandler, self).init_cgroup(cgroup_node, new_cgroup)
 
     # Documentation for cgroups parameters:
     # https://www.kernel.org/doc/Documentation/cgroups/

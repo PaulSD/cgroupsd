@@ -27,6 +27,10 @@
 # shortly after instantiation.  If events are unavailable at instantiation, the handler function
 # will be called either when events become available or after the configured delay.
 #
+# The configured handler function will be called with an "event" argument that will always have the
+# value "sync_needed", and will be called with a "first_sync" argument, which will be True for the
+# first call after instantiation, and will be False for all subsequent calls.
+#
 # To avoid endless churning under heavy load (if the configured handler function is taking a long
 # time to run, or if we are receiving lots of events_lost events), this class sleeps for a
 # configured delay after each call to the handler function.  If the handler function must be called
@@ -67,15 +71,17 @@ class ReliableProcEvents(object):
     self.delay = delay
     self.__logger = logging.getLogger(__name__)
 
-    proc_events.handlers['events_failed'] += self.__handle_event
-    proc_events.handlers['events_good'] += self.__handle_event
-    proc_events.handlers['events_lost'] += self.__handle_event
-
+    self.first_sync = True
     self.stopping = False
     self.sync_needed = True
     self.failed_wake_lock = threading.Event()
     self.good_wake_lock = threading.Event()
     self.lost_wake_lock = threading.Event()
+
+    proc_events.handlers['events_failed'] += self.__handle_event
+    proc_events.handlers['events_good'] += self.__handle_event
+    proc_events.handlers['events_lost'] += self.__handle_event
+
     self.thread = threading.Thread(target=self.__sync_loop)
     self.thread.daemon = True
     self.thread.start()
@@ -112,7 +118,7 @@ class ReliableProcEvents(object):
           if self.stopping: break
         self.sync_needed = False
         self.__logger.debug('Firing sync_needed event')
-        try: self.handler(event='sync_needed')
+        try: self.handler(event='sync_needed', first_sync=self.first_sync) ; self.first_sync = False
         except: self.__logger.exception('Exception thrown in handler:')
         last_sync_time = datetime.utcnow()
       else:

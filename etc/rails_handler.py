@@ -220,8 +220,8 @@ class RailsHandler(BaseHandler):
             for subsystem in self.subsystems]
 
 
-  def init_cgroup(self, cgroup_node):
-    super(RailsHandler, self).init_cgroup(cgroup_node)
+  def init_cgroup(self, cgroup_node, new_cgroup):
+    super(RailsHandler, self).init_cgroup(cgroup_node, new_cgroup)
 
     if cgroup_node.controller_type == 'memory':
       self.__logger.info('Setting memory.limit_in_bytes={0}M on {1}'.format(memory_limit, cgroup_node.full_path))
