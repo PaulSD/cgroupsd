@@ -24,7 +24,7 @@
 #
 # Prerequisites:
 # psutil (v2 or later) : `sudo apt-get install python-psutil` or
-#                        `sudo yum install python-pip ; sudo pip install psutil`
+#                        `sudo yum install python-pip python-devel ; sudo pip install psutil`
 # See the comments in libnl.py for additional prerequisites.
 #
 # Basic Usage:

@@ -21,7 +21,8 @@
 # Prerequisites:
 # libnl : `sudo apt-get install libnl-3-200` or `sudo yum install libnl3`
 # libnl headers : `sudo apt-get install libnl-3-dev` or `sudo yum install libnl3-devel`
-# cffi : `sudo apt-get install python-cffi` or `sudo yum install python-pip ; sudo pip install cffi`
+# cffi : `sudo apt-get install python-cffi` or
+#        `sudo yum install python-pip python-devel libffi-devel ; sudo pip install cffi`
 # (cffi v0.8.2 or later is required for #define and packed=True support in cdef())
 #
 # Basic Usage (equivalent to http://www.infradead.org/~tgr/libnl/doc/core.html#_multicast_example):

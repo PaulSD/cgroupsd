@@ -23,8 +23,8 @@
 # which will customize its behavior for specific use cases.
 #
 # Prerequisites:
-# cgroupspy : `sudo apt-get install python-pip ; sudo pip install cgroupspy` or
-#             `sudo yum install python-pip ; sudo pip install cgroupspy`
+# cgroupspy : `sudo apt-get install python-pip` or `sudo yum install python-pip` then
+#             `sudo pip install git+https://github.com/cloudsigma/cgroupspy.git`
 #
 # See etc/example_handler.py for example usage.
 #

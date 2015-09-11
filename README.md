@@ -7,9 +7,9 @@ This program is basically a combination of the standard cgconfig and cgrulesengd
 * argparse: `` `sudo apt-get install python-argparse` or `sudo yum install python-argparse` ``
 * libnl: `` `sudo apt-get install libnl-3-200` or `sudo yum install libnl3` ``
 * libnl headers: `` `sudo apt-get install libnl-3-dev` or `sudo yum install libnl3-devel` ``
-* cffi (v0.8.2 or later): `` `sudo apt-get install python-cffi` or `sudo yum install python-pip ; sudo pip install cffi` ``
-* psutil (v2 or later): `` `sudo apt-get install python-psutil` or `sudo yum install python-pip ; sudo pip install psutil` ``
-* cgroupspy: `` `sudo apt-get install python-pip ; sudo pip install cgroupspy` or `sudo yum install python-pip ; sudo pip install cgroupspy` ``
+* cffi (v0.8.2 or later): `` `sudo apt-get install python-cffi` or `sudo yum install python-pip python-devel libffi-devel ; sudo pip install cffi` ``
+* psutil (v2 or later): `` `sudo apt-get install python-psutil` or `sudo yum install python-pip python-devel ; sudo pip install psutil` ``
+* cgroupspy: `` `sudo apt-get install python-pip` or `sudo yum install python-pip` then `sudo pip install git+https://github.com/cloudsigma/cgroupspy.git` ``
 
 ## Configuration
 

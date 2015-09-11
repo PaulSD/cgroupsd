@@ -22,10 +22,10 @@
 # https://github.com/peo3/cgroup-utils
 #
 # Prerequisites:
-# cgroupspy : `sudo apt-get install python-pip ; sudo pip install cgroupspy` or
-#             `sudo yum install python-pip ; sudo pip install cgroupspy`
+# cgroupspy : `sudo apt-get install python-pip` or `sudo yum install python-pip` then
+#             `sudo pip install git+https://github.com/cloudsigma/cgroupspy.git`
 # psutil (v2 or later) : `sudo apt-get install python-psutil` or
-#                        `sudo yum install python-pip ; sudo pip install psutil`
+#                        `sudo yum install python-pip python-devel ; sudo pip install psutil`
 #
 
 from cgroupspy import trees
