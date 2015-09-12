@@ -215,7 +215,8 @@ class BaseHandler(object):
         try: cgroup_node.controller.procs = pid
         except IOError as e:
           err_num, err_str = e.args
-          if cgroup_node.controller_type == 'memory' and err_num == errno.ENOMEM:
+          if cgroup_node.controller_type == 'memory' and \
+             (err_num == errno.ENOMEM or err_num == errno.ENOSPC):
             try:
               proc_meminfo = proc.memory_info_ex()
               proc_mem = (proc_meminfo.rss - proc_meminfo.shared)/1048576
