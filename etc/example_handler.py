@@ -60,7 +60,8 @@ class ExampleHandler(BaseHandler):
   def __init__(self):
     self.__logger = logging.getLogger(__name__)
 
-    # All new cgroups will be created under a base cgroup named 'Example'
+    # All new cgroups will be created under a base cgroup named 'Example' which may be configured by
+    # overriding BaseHandler.config_base_cgroup()
     self.base_cgroup = 'Example'
     super(ExampleHandler, self).__init__(subsystems=['cpu', 'memory'], base_cgroups=[self.base_cgroup])
 
@@ -122,7 +123,11 @@ class ExampleHandler(BaseHandler):
   # False if this is being called to reconfigure an existing cgroup.
   # The super (BaseHandler) implementation sets the permissions on each parent cgroup to the value
   # of the cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
-  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
+  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.  Note that
+  # memory.use_hierarchy=1 may be propagated to this cgroup from a parent cgroup, in which case it
+  # cannot be unset in this cgroup even if you override the super (BaseHandler) implementation.
+  # If memory.use_hierarchy was not propagated to this cgroup from a parent cgroup, the value can
+  # be changed here only if no child cgroups have been created within this cgroup.
   def init_cgroup(self, cgroup_node, new_cgroup):
     super(ExampleHandler, self).init_cgroup(cgroup_node, new_cgroup)
 

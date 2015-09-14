@@ -160,7 +160,9 @@ class BaseHandler(object):
   # __init__() then this will not be called.  The default implementation sets the permissions on
   # each parent cgroup to the value of the cgroups_perms parameter provided to __init__(), and sets
   # memory.use_hierarchy=1 and memory.move_charge_at_immigrate=3 if the cgroup is under the memory
-  # subsystem.
+  # subsystem.  Note that memory.use_hierarchy=1 is automatically propagated to all child cgroups by
+  # the kernel, it cannot be changed once child cgroups are created, and it cannot be overridden in
+  # child cgroups.
   def config_base_cgroup(self, cgroup_node):
     if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
@@ -169,9 +171,12 @@ class BaseHandler(object):
       if not cgroup_node.controller.use_hierarchy:
         self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
         try: cgroup_node.controller.use_hierarchy = True
-        # This may be thrown if the cgroup already includes nested cgroups,
-        # but that shouldn't be a fatal error
-        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+        except IOError as e:
+          err_num, err_str = e.args
+          if err_num == errno.EBUSY:
+            self.__logger.warn('Error setting memory.use_hierarchy: Cannot change memory.use_hierarchy after child cgroups have been created')
+          else:
+            raise
       move = cgroup_node.controller.move_charge_at_immigrate
       if not move[0] or not move[1]:
         self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
@@ -400,20 +405,31 @@ class BaseHandler(object):
   # called once to configure 'a/b/c'.  The "new_cgroup" parameter will be True if this is being
   # called to initialize a new cgroup, or False if this is being called to reconfigure an existing
   # cgroup during the initial process iteration when cgroupsd_listener is started.
-  # The default implementation sets the permissions on each parent cgroup to the value of the
+  # This default implementation sets the permissions on each cgroup to the value of the
   # cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
-  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
+  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.  Note that
+  # memory.use_hierarchy=1 may be propagated to this cgroup from a parent cgroup, in which case it
+  # cannot (and will not) be re-set or unset in this cgroup.  If memory.use_hierarchy was not
+  # propagated to this cgroup from a parent cgroup, the value can be changed here only if no child
+  # cgroups have been created within this cgroup.
   def init_cgroup_parent(self, cgroup_node, depth, new_cgroup):
     if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
     if cgroup_node.controller_type == 'memory':
-      if new_cgroup or not cgroup_node.controller.use_hierarchy:
+      # Attempting to set memory.use_hierarchy when it is already set in a parent cgroup will result
+      # in IOError EINVAL, so do not attempt to set it for new cgroups if it is already set
+      if new_cgroup and cgroup_node.controller.use_hierarchy:
+        self.__logger.info('memory.use_hierarchy=1 is already set on {0}'.format(cgroup_node.full_path))
+      elif not cgroup_node.controller.use_hierarchy:
         self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
         try: cgroup_node.controller.use_hierarchy = True
-        # This may be thrown if the cgroup already includes nested cgroups,
-        # but that shouldn't be a fatal error
-        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+        except IOError as e:
+          err_num, err_str = e.args
+          if err_num == errno.EBUSY:
+            self.__logger.warn('Error setting memory.use_hierarchy: Cannot change memory.use_hierarchy after child cgroups have been created')
+          else:
+            raise
       move = cgroup_node.controller.move_charge_at_immigrate
       if new_cgroup or not move[0] or not move[1]:
         self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
@@ -443,20 +459,31 @@ class BaseHandler(object):
   # The "new_cgroup" parameter will be True if this is being called to initialize a new cgroup, or
   # False if this is being called to reconfigure an existing cgroup during the initial process
   # iteration when cgroupsd_listener is started.
-  # The default implementation sets the permissions on each cgroup to the value of the cgroups_perms
-  # parameter provided to __init__(), and sets memory.use_hierarchy=1 and
-  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.
+  # This default implementation sets the permissions on each cgroup to the value of the
+  # cgroups_perms parameter provided to __init__(), and sets memory.use_hierarchy=1 and
+  # memory.move_charge_at_immigrate=3 if the cgroup is under the memory subsystem.  Note that
+  # memory.use_hierarchy=1 may be propagated to this cgroup from a parent cgroup, in which case it
+  # cannot (and will not) be re-set or unset in this cgroup.  If memory.use_hierarchy was not
+  # propagated to this cgroup from a parent cgroup, the value can be changed here only if no child
+  # cgroups have been created within this cgroup.
   def init_cgroup(self, cgroup_node, new_cgroup):
     if self.cgroups_perms and _cur_perms(cgroup_node.full_path) != self.cgroups_perms:
       self.__logger.info('Setting permissions on {0}'.format(cgroup_node.full_path))
       os.chmod(cgroup_node.full_path, self.cgroups_perms)
     if cgroup_node.controller_type == 'memory':
-      if new_cgroup or not cgroup_node.controller.use_hierarchy:
+      # Attempting to set memory.use_hierarchy when it is already set in a parent cgroup will result
+      # in IOError EINVAL, so do not attempt to set it for new cgroups if it is already set
+      if new_cgroup and cgroup_node.controller.use_hierarchy:
+        self.__logger.info('memory.use_hierarchy=1 is already set on {0}'.format(cgroup_node.full_path))
+      elif not cgroup_node.controller.use_hierarchy:
         self.__logger.info('Setting memory.use_hierarchy=1 on {0}'.format(cgroup_node.full_path))
         try: cgroup_node.controller.use_hierarchy = True
-        # This may be thrown if the cgroup already includes nested cgroups,
-        # but that shouldn't be a fatal error
-        except IOError: self.__logger.exception('Error setting memory.use_hierarchy:')
+        except IOError as e:
+          err_num, err_str = e.args
+          if err_num == errno.EBUSY:
+            self.__logger.warn('Error setting memory.use_hierarchy: Cannot change memory.use_hierarchy after child cgroups have been created')
+          else:
+            raise
       move = cgroup_node.controller.move_charge_at_immigrate
       if new_cgroup or not move[0] or not move[1]:
         self.__logger.info('Setting memory.move_charge_at_immigrate=3 on {0}'.format(cgroup_node.full_path))
