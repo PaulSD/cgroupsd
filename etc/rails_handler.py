@@ -30,7 +30,17 @@
 #
 
 # Limit on RSS memory size per cgroup, in MB
-memory_limit = 2*1024  # 2GB
+memory_limit = 2*1024+256  # 2.25GB
+# When using the "smart" spawn method, Passenger can deadlock if a spawner process is killed at an
+# inopportune time, so we move workers to a child cgroup that has a lower memory limit, such that
+# workers are more likely to be killed than spawners.
+workers_memory_limit = 2*1024  # 2GB
+
+# This is used to classify processes spawned by "PassengerHelperAgent" in Passenger 4.  It should be
+# set to True if using the Passenger 4 "smart" spawn method, or False if using the Passenger 4
+# "direct" or "conservative" spawn methods.
+# For Passenger 3, only the "smart" spawn method is currently supported.  (See the comments below.)
+using_p4_smart_spawner = False
 
 
 
@@ -51,7 +61,7 @@ class RailsHandler(BaseHandler):
     self.base_cgroup = 'RoR'
     super(RailsHandler, self).__init__(subsystems=['memory'], base_cgroups=[self.base_cgroup])
 
-    self.p3_or_p4_spawner_or_worker_regex = re.compile(r'^(?:Passenger [^:]+|Rails): (\S+)')
+    self.p3_or_p4_worker_regex = re.compile(r'^(?:Passenger RackApp|Rails): (\S+)')
     self.p3_or_p4_spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
     self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: (\S+)')
 
@@ -87,31 +97,31 @@ class RailsHandler(BaseHandler):
     #
     # So, we currently do the following to identify new Passenger 4 processes and associate them
     # with individual Rails applications:
-    # * Check proc.cmdline() for an established spawner or worker string.
-    #   This will take care of established processes, and will take care of new worker processes
-    #   when using the "smart" spawn method if we receive the 'fork' event when forking from the
-    #   spawner.
-    # * If proc.name() is "ruby", check proc.parent().cmdline() for an established spawner string.
-    #   This will take care of new worker processes when using the "smart" spawn method if we miss
-    #   the 'fork' event when forking from the spawner (for example, if cgroupsd is started after
-    #   the fork but before Passenger changes proc.cmdline()).
-    # * If proc.name() is "ruby" and proc.parent().cmdline() is "PassengerHelperAgent" and the
-    #   IN_PASSENGER=1 environment variable is set, read the process's working directory as the app
-    #   path.  This will take care of new spawner processes and new worker processes when using the
-    #   "direct" spawn method.
+    # * Check whether proc.name() contains "ruby".  If not, the process isn't relevant.
+    # * Check proc.cmdline() for an established worker string.  This will take care of established
+    #   worker processes.
+    # * Check proc.parent().cmdline() for an established spawner string.  This will take care of new
+    #   worker processes when using the "smart" spawn method.
+    # * Check proc.cmdline() for an established spawner string.  This will take care of established
+    #   spawner processes.
+    # * Check proc.parent().cmdline() for "PassengerHelperAgent" and check for an IN_PASSENGER=1
+    #   environment variable.  If present, read the process's working directory as the app path.
+    #   This will take care of new spawner processes and new worker processes when using the
+    #   "direct" spawn method.  Note that we cannot distinguish between spawner and worker processes
+    #   in this case, so all matching processes are treated as spawners if using_p4_smart_spawner is
+    #   True or workers if using_p4_smart_spawner is False.
     #
     # For Passenger 3, we currently do the following:
-    # * Check proc.cmdline() for an established spawner or worker string.
-    #   This will take care of established processes, and will take care of new worker processes
-    #   when using a "smart" spawn method if we receive the 'fork' event when forking from the
-    #   spawner.
-    # * If proc.name() is "ruby", check proc.parent().cmdline() for an established spawner string.
-    #   This will take care of new worker processes when using a "smart" spawn method if we miss
-    #   the 'fork' event when forking from the spawner (for example, if cgroupsd is started after
-    #   the fork but before Passenger changes proc.cmdline()).
-    # * If either of the above checks matched, check proc.parent().cmdline() for an established
-    #   spawner string and assign cgroups to the parent if it is an established spawner.  This will
-    #   take care of new spawners after they have become established.
+    # * Check whether proc.name() is "ruby".  If not, the process isn't relevant.
+    # * Check proc.cmdline() for an established worker string.  This will take care of established
+    #   worker processes.
+    # * Check proc.parent().cmdline() for an established spawner string.  This will take care of new
+    #   worker processes when using the "smart" spawn method.
+    # * Check proc.cmdline() for an established spawner string.  This will take care of established
+    #   spawner processes.
+    # * If proc.parent().cmdline() is found to contain an established spawner string then assign
+    #   cgroups to the parent process.  This will take care of new spawners after they have become
+    #   established.
     # Note that new workers are immediately assigned to cgroups when using a "smart" spawn method,
     # but new spawners are not assigned to cgroups until after they have forked their first worker.
     # We currently do not support assigning cgroups to new workers when using the "conservative"
@@ -125,13 +135,15 @@ class RailsHandler(BaseHandler):
     # * Periodically iterate through the process list and assign established workers to cgroups.
 
     # Identify relevant process and obtain the associated app path
+    # Grab proc.name()
     try:
       proc_name = proc.name()
     except psutil.NoSuchProcess:
       self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
       return True
-    # We only care about processes with proc.name() == "ruby"
+    # Check whether proc.name() is "ruby"
     if proc_name != 'ruby': return False
+    # Grab proc.cmdline() and proc.parent.cmdline()
     try:
       proc_cmdline = proc.cmdline()
       if len(proc_cmdline) == 0: proc_cmdline = ''
@@ -147,40 +159,50 @@ class RailsHandler(BaseHandler):
       self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
       return True
     self.__logger.debug('PID {0} is a ruby process with cmdline "{1}" and parent PID {2} with cmdline "{3}"'.format(pid, proc_cmdline, parent_pid, proc_parent_cmdline))
-    # Check proc.cmdline() for an established spawner or worker string
-    match = self.p3_or_p4_spawner_or_worker_regex.match(proc_cmdline)
+    # Check proc.cmdline() for an established worker string
+    match = self.p3_or_p4_worker_regex.match(proc_cmdline)
     if match:
+      is_worker = True
       app_path = match.group(1)
-      self.__logger.debug('PID {0} is (or just forked from) an established spawner or worker'.format(pid))
-    # Check proc.parent().cmdline() for "PassengerHelperAgent"
-    elif proc_parent_cmdline == 'PassengerHelperAgent':
-      # Check for the IN_PASSENGER=1 environment variable
-      try:
-        env_file = open(os.path.join('/proc', str(pid), 'environ'))
-        env = env_file.read().split('\0')
-        env_file.close()
-      except IOError as e:
-        self.__logger.debug('Error reading /proc/{0}/environ, PID {1} probably exited before we read the file: {2}'.format(pid, pid, e))
-        return True
-      if 'IN_PASSENGER=1' not in env:
-        self.__logger.debug('PID {0} does not appear to be a relevant Rails process (No INPASSENGER=1 environment variable)'.format(pid))
-        return False
-      self.__logger.debug('PID {0} is a new Passenger 4 spawner or worker'.format(pid))
-      try:
-        app_path = proc.cwd()
-      except psutil.NoSuchProcess:
-        self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
-        return True
+      self.__logger.debug('PID {0} is an established worker'.format(pid))
     else:
       # Check proc.parent().cmdline() for an established spawner string
       match = self.p3_or_p4_spawner_regex.match(proc_parent_cmdline)
       if match:
+        is_worker = True
         app_path = match.group(1)
         self.__logger.debug('PID {0} is a new worker forked from an established spawner'.format(pid))
-      # No match, this process is not relevant
       else:
-        self.__logger.debug('PID {0} does not appear to be a relevant Rails process'.format(pid))
-        return False
+        # Check proc.cmdline() for an established spawner string
+        match = self.p3_or_p4_spawner_regex.match(proc_cmdline)
+        if match:
+          is_worker = False
+          app_path = match.group(1)
+          self.__logger.debug('PID {0} is an established spawner'.format(pid))
+        # Check proc.parent().cmdline() for "PassengerHelperAgent" and check for an IN_PASSENGER=1
+        # environment variable
+        elif proc_parent_cmdline == 'PassengerHelperAgent':
+          try:
+            env_file = open(os.path.join('/proc', str(pid), 'environ'))
+            env = env_file.read().split('\0')
+            env_file.close()
+          except IOError as e:
+            self.__logger.debug('Error reading /proc/{0}/environ, PID {1} probably exited before we read the file: {2}'.format(pid, pid, e))
+            return True
+          if 'IN_PASSENGER=1' not in env:
+            self.__logger.debug('PID {0} does not appear to be a relevant Rails process (No INPASSENGER=1 environment variable)'.format(pid))
+            return False
+          is_worker = using_p4_smart_spawner
+          self.__logger.debug('PID {0} is a new Passenger 4 spawner or worker'.format(pid))
+          try:
+            app_path = proc.cwd()
+          except psutil.NoSuchProcess:
+            self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
+            return True
+        # No match, this process is not relevant
+        else:
+          self.__logger.debug('PID {0} does not appear to be a relevant Rails process'.format(pid))
+          return False
 
     # If the parent process is an established Passenger 3 spawner, assign cgroups to it.
     match = self.p3_spawner_regex.match(proc_parent_cmdline)
@@ -191,7 +213,7 @@ class RailsHandler(BaseHandler):
       except psutil.NoSuchProcess:
         self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
         return True
-      cgroups = self._get_app_cgroups(parent_app_path, proc_parent_username)
+      cgroups = self._get_app_cgroups(parent_app_path, proc_parent_username, False)
       self.__logger.debug('Assigning established Passenger 3 spawner PID {0} ({1}) to cgroups {2}'.format(parent_pid, proc_parent_cmdline, cgroups))
       self.config_cgroups(cgroups)
       self.assign_process_cgroups(pid=parent_pid, proc=proc_parent, cgroups=cgroups)
@@ -201,10 +223,10 @@ class RailsHandler(BaseHandler):
     except psutil.NoSuchProcess:
       self.__logger.debug('PID {0} exited before it could be processed'.format(pid))
       return True
-    return self._get_app_cgroups(app_path, proc_username)
+    return self._get_app_cgroups(app_path, proc_username, is_worker)
 
 
-  def _get_app_cgroups(self, path, username):
+  def _get_app_cgroups(self, path, username, is_worker):
 
     # If the app path contains "application_home", then assume the app was deployed using capistrano
     # and use the parent directory name as the application name.  Otherwise use the last path
@@ -214,16 +236,19 @@ class RailsHandler(BaseHandler):
     except: app_home_idx = 0
     app_name = path_components[app_home_idx-1]
 
-    # Return the cgroups that the process should be assigned to
-    # (/<subsystem>/RoR/<username>/<app name>)
-    return [(subsystem, self.base_cgroup, os.path.join(username, app_name))
-            for subsystem in self.subsystems]
+    # Return the cgroups that the process should be assigned to:
+    # /<subsystem>/RoR/<username>/<app name>[/workers]
+    if is_worker: cgroup_name = os.path.join(username, app_name, 'workers')
+    else: cgroup_name = os.path.join(username, app_name)
+    return [(subsystem, self.base_cgroup, cgroup_name) for subsystem in self.subsystems]
 
 
   def init_cgroup(self, cgroup_node, new_cgroup):
     super(RailsHandler, self).init_cgroup(cgroup_node, new_cgroup)
 
     if cgroup_node.controller_type == 'memory':
-      if new_cgroup or cgroup_node.controller.limit_in_bytes != memory_limit*1048576:
-        self.__logger.info('Setting memory.limit_in_bytes={0}M on {1}'.format(memory_limit, cgroup_node.full_path))
-        cgroup_node.controller.limit_in_bytes = memory_limit*1048576
+      if cgroup_node.name == 'workers' : mem_limit = workers_memory_limit
+      else: mem_limit = memory_limit
+      if new_cgroup or cgroup_node.controller.limit_in_bytes != mem_limit*1048576:
+        self.__logger.info('Setting memory.limit_in_bytes={0}M on {1}'.format(mem_limit, cgroup_node.full_path))
+        cgroup_node.controller.limit_in_bytes = mem_limit*1048576
