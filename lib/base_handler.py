@@ -229,7 +229,9 @@ class BaseHandler(object):
               cgroup_limit = cgroup_node.controller.limit_in_bytes/1048576
               self.__logger.warn('Killing PID {0} (UID {1}: {2}) because it is using more memory ({3}MB) than is available ({4}MB used, {5}MB limit) in cgroup {6}'.format(pid, proc_uid, proc_name, proc_mem, cgroup_usage, cgroup_limit, path))
               os.kill(pid, signal.SIGKILL)
-              syslog.openlog(ident='cgroupsd', facility=syslog.LOG_KERN)
+              # Keyword arguments to syslog.openlog() are not supported until Python 2.7
+              #syslog.openlog(ident='cgroupsd', facility=syslog.LOG_KERN)
+              syslog.openlog('cgroupsd', 0, syslog.LOG_KERN)
               syslog.syslog('Killed PID {0} (UID {1}: {2}) because it was using more memory ({3}MB) than was available ({4}MB used, {5}MB limit) in cgroup {6}'.format(pid, proc_uid, proc_name, proc_mem, cgroup_usage, cgroup_limit, path))
               syslog.syslog('Memory cgroup stats for {0} : {1}'.format(path, ' '.join(['{0}:{1}KB'.format(k,v/1024) for (k,v) in cgroup_node.controller.stat.iteritems()])))
               syslog.syslog('Processes in cgroup {0} :'.format(path))
@@ -245,6 +247,12 @@ class BaseHandler(object):
                 except psutil.NoSuchProcess: continue
             except psutil.NoSuchProcess:
               self.__logger.warn('PID {0} (UID {1}: {2}) vanished before we could kill it because it was using more memory than was available in cgroup {3}'.format(pid, proc_uid, proc_name, path))
+            except OSError as e:
+              err_num, err_str = e.args
+              if err_num == errno.ESRCH:
+                self.__logger.warn('PID {0} (UID {1}: {2}) vanished before we could kill it because it was using more memory than was available in cgroup {3}'.format(pid, proc_uid, proc_name, path))
+              else:
+                raise
           else:
             self.__logger.warn('Error moving PID {0} (UID {1}: {2}) to cgroup {3}: {4}'.format(pid, proc_uid, proc_name, path, e))
       else:
