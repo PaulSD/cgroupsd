@@ -36,11 +36,12 @@ memory_limit = 2*1024+256  # 2.25GB
 # workers are more likely to be killed than spawners.
 workers_memory_limit = 2*1024  # 2GB
 
-# This is used to classify processes spawned by "PassengerHelperAgent" in Passenger 4.  It should be
-# set to True if using the Passenger 4 "smart" spawn method, or False if using the Passenger 4
-# "direct" or "conservative" spawn methods.
+# This is used to classify processes spawned by "Passenger core" in Passenger 5,
+# "PassengerHelperAgent" in Passenger 4.  It should be set to True if using the Passenger 4/5
+# "smart" spawn method, or False if using the Passenger 4/5 "direct" or "conservative" spawn
+# methods.
 # For Passenger 3, only the "smart" spawn method is currently supported.  (See the comments below.)
-using_p4_smart_spawner = False
+using_smart_spawner = False
 
 
 
@@ -61,8 +62,8 @@ class RailsHandler(BaseHandler):
     self.base_cgroup = 'RoR'
     super(RailsHandler, self).__init__(subsystems=['memory'], base_cgroups=[self.base_cgroup])
 
-    self.p3_or_p4_worker_regex = re.compile(r'^(?:Passenger RackApp|Rails): (\S+)')
-    self.p3_or_p4_spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
+    self.worker_regex = re.compile(r'^(?:Passenger (?:Rack|Ruby)App|Rails): (\S+)')
+    self.spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
     self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: (\S+)')
 
 
@@ -70,6 +71,8 @@ class RailsHandler(BaseHandler):
 
     # Established spawner and worker processes running under Passenger are easy to identify and
     # associate with individual Rails applications using proc.cmdline():
+    # * Passenger 5 "smart" spawners use "Passenger AppPreloader: <app path>"
+    # * Passenger 5 workers use "Passenger RubyApp: <app path>"
     # * Passenger 4 "smart" spawners use "Passenger AppPreloader: <app path>"
     # * Passenger 4 workers use "Passenger RackApp: <app path>"
     # * Passenger 3 "smart" spawners use "Passenger ApplicationSpawner: <app path>"
@@ -85,17 +88,18 @@ class RailsHandler(BaseHandler):
     # To start a new process (either a spawner or a worker), Passenger always forks an existing
     # process.  When using a "smart" spawn method, an established spawner is forked to start a new
     # worker.  When starting a spawner or using the "direct" or "conservative" spawn method,
-    # "PassengerHelperAgent" (Passenger 4) or "Passenger spawn server" (Passenger 3) is forked.
-    # After forking, Passenger execs a series of bash and ruby commands, which repeatedly changes
-    # proc.cmdline() to various bash/ruby commands that are hard to identify and do not include the
-    # app path.  The last of these commands is always a ruby process (that does not initially
-    # include the app path in proc.cmdline()).  proc.cmdline() is updated some time after the last
-    # ruby process is exec'd.  In Passenger 4, an IN_PASSENGER=1 environment variable is set and the
-    # current working directory is changed to the app's path before the last ruby process is exec'd.
+    # "Passenger core" (Passenger 5), "PassengerHelperAgent" (Passenger 4), or
+    # "Passenger spawn server" (Passenger 3) is forked.  After forking, Passenger execs a series of
+    # bash and ruby commands, which repeatedly changes proc.cmdline() to various bash/ruby commands
+    # that are hard to identify and do not include the app path.  The last of these commands is
+    # always a ruby process (that does not initially include the app path in proc.cmdline()).
+    # proc.cmdline() is then updated some time after the last ruby process is exec'd.
+    # In Passenger 5 and Passenger 4, an IN_PASSENGER=1 environment variable is set and the current
+    # working directory is changed to the app's path before the last ruby process is exec'd.
     # In Passenger 3, there does not appear to be any way to obtain the app's path until
     # proc.cmdline() is changed or the process opens application files.
     #
-    # So, we currently do the following to identify new Passenger 4 processes and associate them
+    # So, we currently do the following to identify new Passenger 4/5 processes and associate them
     # with individual Rails applications:
     # * Check whether proc.name() contains "ruby".  If not, the process isn't relevant.
     # * Check proc.cmdline() for an established worker string.  This will take care of established
@@ -104,12 +108,12 @@ class RailsHandler(BaseHandler):
     #   worker processes when using the "smart" spawn method.
     # * Check proc.cmdline() for an established spawner string.  This will take care of established
     #   spawner processes.
-    # * Check proc.parent().cmdline() for "PassengerHelperAgent" and check for an IN_PASSENGER=1
-    #   environment variable.  If present, read the process's working directory as the app path.
-    #   This will take care of new spawner processes and new worker processes when using the
-    #   "direct" spawn method.  Note that we cannot distinguish between spawner and worker processes
-    #   in this case, so all matching processes are treated as spawners if using_p4_smart_spawner is
-    #   True or workers if using_p4_smart_spawner is False.
+    # * Check proc.parent().cmdline() for "Passenger core" or "PassengerHelperAgent" and check for
+    #   an IN_PASSENGER=1 environment variable.  If present, read the process's working directory as
+    #   the app path.  This will take care of new spawner processes and new worker processes when
+    #   using the "direct" spawn method.  Note that we cannot distinguish between spawner and worker
+    #   processes in this case, so all matching processes are treated as spawners if
+    #   using_smart_spawner is True or workers if using_smart_spawner is False.
     #
     # For Passenger 3, we currently do the following:
     # * Check whether proc.name() is "ruby".  If not, the process isn't relevant.
@@ -160,28 +164,28 @@ class RailsHandler(BaseHandler):
       return True
     self.__logger.debug('PID {0} is a ruby process with cmdline "{1}" and parent PID {2} with cmdline "{3}"'.format(pid, proc_cmdline, parent_pid, proc_parent_cmdline))
     # Check proc.cmdline() for an established worker string
-    match = self.p3_or_p4_worker_regex.match(proc_cmdline)
+    match = self.worker_regex.match(proc_cmdline)
     if match:
       is_worker = True
       app_path = match.group(1)
       self.__logger.debug('PID {0} is an established worker'.format(pid))
     else:
       # Check proc.parent().cmdline() for an established spawner string
-      match = self.p3_or_p4_spawner_regex.match(proc_parent_cmdline)
+      match = self.spawner_regex.match(proc_parent_cmdline)
       if match:
         is_worker = True
         app_path = match.group(1)
         self.__logger.debug('PID {0} is a new worker forked from an established spawner'.format(pid))
       else:
         # Check proc.cmdline() for an established spawner string
-        match = self.p3_or_p4_spawner_regex.match(proc_cmdline)
+        match = self.spawner_regex.match(proc_cmdline)
         if match:
           is_worker = False
           app_path = match.group(1)
           self.__logger.debug('PID {0} is an established spawner'.format(pid))
-        # Check proc.parent().cmdline() for "PassengerHelperAgent" and check for an IN_PASSENGER=1
-        # environment variable
-        elif proc_parent_cmdline == 'PassengerHelperAgent':
+        # Check proc.parent().cmdline() for "Passenger core" or "PassengerHelperAgent" and check for
+        # an IN_PASSENGER=1 environment variable
+        elif proc_parent_cmdline == 'Passenger core' or proc_parent_cmdline == 'PassengerHelperAgent':
           try:
             env_file = open(os.path.join('/proc', str(pid), 'environ'))
             env = env_file.read().split('\0')
@@ -192,7 +196,7 @@ class RailsHandler(BaseHandler):
           if 'IN_PASSENGER=1' not in env:
             self.__logger.debug('PID {0} does not appear to be a relevant Rails process (No INPASSENGER=1 environment variable)'.format(pid))
             return False
-          is_worker = using_p4_smart_spawner
+          is_worker = not using_smart_spawner
           self.__logger.debug('PID {0} is a new Passenger 4 spawner or worker'.format(pid))
           try:
             app_path = proc.cwd()
