@@ -36,12 +36,12 @@ memory_limit = 2*1024+256  # 2.25GB
 # workers are more likely to be killed than spawners.
 workers_memory_limit = 2*1024  # 2GB
 
-# This is used to classify processes spawned by "Passenger core" in Passenger 5,
+# This is used to classify processes spawned by "Passenger core" in Passenger 5 and
 # "PassengerHelperAgent" in Passenger 4.  It should be set to True if using the Passenger 4/5
 # "smart" spawn method, or False if using the Passenger 4/5 "direct" or "conservative" spawn
 # methods.
 # For Passenger 3, only the "smart" spawn method is currently supported.  (See the comments below.)
-using_smart_spawner = False
+using_smart_spawner = True
 
 
 
@@ -62,7 +62,7 @@ class RailsHandler(BaseHandler):
     self.base_cgroup = 'RoR'
     super(RailsHandler, self).__init__(subsystems=['memory'], base_cgroups=[self.base_cgroup])
 
-    self.worker_regex = re.compile(r'^(?:Passenger (?:Rack|Ruby)App|Rails): (\S+)')
+    self.worker_regex = re.compile(r'^(?:Passenger AppPreloader: (\S+) \(forking...\)$|(?:Passenger (?:Rack|Ruby)App|Rails): (\S+))')
     self.spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
     self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: (\S+)')
 
@@ -72,7 +72,7 @@ class RailsHandler(BaseHandler):
     # Established spawner and worker processes running under Passenger are easy to identify and
     # associate with individual Rails applications using proc.cmdline():
     # * Passenger 5 "smart" spawners use "Passenger AppPreloader: <app path>"
-    # * Passenger 5 workers use "Passenger RubyApp: <app path>"
+    # * Passenger 5 workers use "Passenger RubyApp: <app path>" or "Passenger AppPreloader: <app path> (forking...)"
     # * Passenger 4 "smart" spawners use "Passenger AppPreloader: <app path>"
     # * Passenger 4 workers use "Passenger RackApp: <app path>"
     # * Passenger 3 "smart" spawners use "Passenger ApplicationSpawner: <app path>"

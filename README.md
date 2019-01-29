@@ -13,7 +13,7 @@ This program is basically a combination of the standard cgconfig and cgrulesengd
 
 ## Configuration
 
-See the comments in [etc/cgroupsd_handlers.py](tree/master/etc/cgroupsd_handlers.py) for configuration/customization.
+See the comments in [etc/cgroupsd_handlers.py](etc/cgroupsd_handlers.py) for configuration/customization.
 
 ## License
 
