@@ -62,7 +62,7 @@ class RailsHandler(BaseHandler):
     self.base_cgroup = 'RoR'
     super(RailsHandler, self).__init__(subsystems=['memory'], base_cgroups=[self.base_cgroup])
 
-    self.worker_regex = re.compile(r'^(?:Passenger AppPreloader: (\S+) \(forking...\)$|(?:Passenger (?:Rack|Ruby)App|Rails): (\S+))')
+    self.worker_regex = re.compile(r'^(?:Passenger AppPreloader: (\S+) \(forking\.\.\.\)$|(?:Passenger (?:Rack|Ruby)App|Rails): (\S+))')
     self.spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
     self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: (\S+)')
 
