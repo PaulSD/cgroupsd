@@ -24,7 +24,7 @@ umask 0007
 Log()
 {
   local Message="$1"
-  echo `date "+%Y-%m-%d %H:%M:%S"` "$Message" | \
+  echo "$(date "+%Y-%m-%d %H:%M:%S") $Message" | \
     /usr/sbin/rotatelogs "$Log_File.%Y-%m-%d" 86400
   return 0
 }
@@ -82,8 +82,8 @@ case "$1" in
     exit 0
     ;;
   restart)
-    Script="$(readlink -e "$(which "$0")")"
-    cd "$(dirname "$Script")"
+    Script="$(readlink -e "$(which "$0")")" || exit 2
+    cd "$(dirname "$Script")" || exit 2
     eval "./$(basename "$Script") stop"
     eval "./$(basename "$Script") start"
     exit $?
