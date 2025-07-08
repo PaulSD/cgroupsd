@@ -189,9 +189,9 @@ __header_files = [
 def __read_ffi_headers():
   # Python 2.6 does not support passing flags to re.sub(), so we must compile these
   ifdef_regex = re.compile(r'#ifdef.*?#endif', flags=re.DOTALL)
-  cpp_regex = re.compile(r'^\s*#(?!define[ \t]+\S+[ \t]+[x0-9A-F]+\s*(/\*.*)?$)(.*\\\n)*.*$', flags=re.MULTILINE)
+  cpp_regex = re.compile(r'^[ \t]*#(?!define[ \t]+[^ \t]+[ \t]+[x0-9A-F]+[ \t]*(/\*.*)?$)(.*\\\n)*.*$', flags=re.MULTILINE)
   attr_regex = re.compile(r'__attribute__\(\(.*\)\)', flags=re.MULTILINE)
-  inline_regex = re.compile(r'\s+inline(\s+.*?)\{.*?\}', flags=re.DOTALL)
+  inline_regex = re.compile(r'[ \t\n\r]+inline([ \t\n\r]+.*?)\{.*?\}', flags=re.DOTALL)
   for file in __header_files:
     file = '/usr/include/'+file
     data = open(file).read()

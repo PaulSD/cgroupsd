@@ -62,9 +62,9 @@ class RailsHandler(BaseHandler):
     self.base_cgroup = 'RoR'
     super(RailsHandler, self).__init__(subsystems=['memory'], base_cgroups=[self.base_cgroup])
 
-    self.worker_regex = re.compile(r'^(?:Passenger AppPreloader: (\S+) \(forking\.\.\.\)$|(?:Passenger (?:Rack|Ruby)App|Rails): (\S+))')
-    self.spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): (\S+)')
-    self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: (\S+)')
+    self.worker_regex = re.compile(r'^(?:Passenger AppPreloader: ([^ \t]+) \(forking\.\.\.\)$|(?:Passenger (?:Rack|Ruby)App|Rails): ([^ \t]+))')
+    self.spawner_regex = re.compile(r'^Passenger (?:AppPreloader|ApplicationSpawner): ([^ \t]+)')
+    self.p3_spawner_regex = re.compile(r'^Passenger ApplicationSpawner: ([^ \t]+)')
 
 
   def get_process_cgroups(self, pid, proc, **event_args):
